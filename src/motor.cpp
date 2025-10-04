@@ -1,11 +1,11 @@
 #include "motor.h"
 
 // Pins for Cytron MDD10A (DC motor driver)
-const int dirPinA = 15; // Direction pin for motor A
-const int pwmPinA = 2;  // PWM pin for motor A (connect to MDD10A PWM)
+const int dirPinA = 25; // Direction pin for motor A
+const int pwmPinA = 33;  // PWM pin for motor A (connect to MDD10A PWM)
 
-const int dirPinB = 0;  // Direction pin for motor B
-const int pwmPinB = 4;  // PWM pin for motor B
+const int dirPinB = 13;  // Direction pin for motor B
+const int pwmPinB = 26;  // PWM pin for motor B
 
 // PWM configuration (ESP32 LEDC)
 const int pwmFreq = 20000;      // 20 kHz

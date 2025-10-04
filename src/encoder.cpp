@@ -1,10 +1,10 @@
 #include "encoder.h"
 
 // Default pins (change if needed)
-const int ENC_L_A = 34; // Left encoder A
-const int ENC_L_B = 35; // Left encoder B
-const int ENC_R_A = 32; // Right encoder A
-const int ENC_R_B = 33; // Right encoder B
+const int ENC_L_A = 35; // Left encoder A
+const int ENC_L_B = 36; // Left encoder B
+const int ENC_R_A = 34; // Right encoder A
+const int ENC_R_B = 39; // Right encoder B
 
 // Pulses per revolution (set according to your encoder)
 const int PPR = 1024;
