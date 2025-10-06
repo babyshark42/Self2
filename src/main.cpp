@@ -17,24 +17,42 @@ static unsigned long tPrint = 0;
 static const unsigned long PRINT_PERIOD = 500;  // ms
 
 // ====== Velocity PI control (ต่อข้าง) ======
-static double KpL = 0.03, KiL = 0.20;
-static double KpR = 0.03, KiR = 0.20;
-static double iL = 0.0,  iR = 0.0;            // integral terms
+static double KpL = 0.08, KiL = 0.45;
+static double KpR = 0.08, KiR = 0.45;
+static double iL = 0.0,  iR = 0.0;
 static const int PWM_MAX = 255;
 
-// เดดโซนต่อข้าง (ใส่ค่าที่วัดจริง)
-static const int START_PWM_L = 24;
-static const int START_PWM_R = 32;
+// feed-forward (PWM ต่อ 1 RPM) — เริ่มจาก 2.6 แล้วปรับทีหลังได้
+static double kV_L = 2.55, kV_R = 2.8;
 
-// เป้าหมายความเร็ว (RPM) เริ่มต้น
+// เดดโซนต่อข้าง
+static const int START_PWM_L = 24;
+static const int START_PWM_R = 28;
+
+// เป้าหมายความเร็ว (RPM)
 static double targetRpmL = 60.0;
 static double targetRpmR = 60.0;
 
-// จังหวะคุม 100 Hz
+// debug duty / saturation
+static int gDutyL = 0, gDutyR = 0;
+static bool gSatL = false, gSatR = false;
+
+// 100 Hz
 static uint32_t tCtrl = 0;
 static const uint32_t CTRL_DT_MS = 10;
 
-// ====== Helpers ======
+
+static void applyCommandPWM() {
+  cmdMag = constrain(cmdMag, 0, 255);
+  cmdL   = constrain(cmdL,  -255, 255);
+  cmdR   = constrain(cmdR,  -255, 255);
+
+    gDutyL = cmdL;
+    gDutyR = cmdR;
+
+  updateMotorControl((double)cmdL, (double)cmdR);
+}
+
 static inline double clamp(double x, double lo, double hi) {
   return (x < lo) ? lo : (x > hi) ? hi : x;
 }
@@ -47,47 +65,47 @@ static int applyDeadbandSigned(double cmd, int startPwm) {
   return (cmd >= 0) ? duty : -duty;
 }
 
-static void applyCommandPWM() {
-  cmdMag = constrain(cmdMag, 0, 255);
-  cmdL   = constrain(cmdL,  -255, 255);
-  cmdR   = constrain(cmdR,  -255, 255);
-  updateMotorControl((double)cmdL, (double)cmdR);
-}
+void speedControlStep() {
+  const double CPR = 4.0 * 1024.0;     // PPR=1024 → CPR=4096
+  const double Ts  = CTRL_DT_MS / 1000.0;
 
-static void speedControlStep() {
-  // ใช้ CPR = 4*PPR (ของคุณ PPR=1024 → CPR=4096)
-  const double CPR = 4.0 * 1024.0;
-
-  // 1) วัดความเร็ว (cps → rpm)
+  // 1) อ่าน rpm ปัจจุบัน
   double Lrpm = getLeftSpeedCps()  * 60.0 / CPR;
   double Rrpm = getRightSpeedCps() * 60.0 / CPR;
 
-  // 2) error
+  // 2) feed-forward ตามเป้าหมาย
+  double uL = kV_L * targetRpmL;
+  double uR = kV_R * targetRpmR;
+
+  // 3) error → PI (เพิ่มบน u_ff)
   double eL = targetRpmL - Lrpm;
   double eR = targetRpmR - Rrpm;
 
-  // 3) PI
-  const double Ts = CTRL_DT_MS / 1000.0;
-  double uL = KpL * eL + iL;
-  double uR = KpR * eR + iR;
+  uL += KpL * eL + iL;
+  uR += KpR * eR + iR;
 
-  // 4) pre-clamp
+  // 4) clamp + สถานะชนขอบ
+  gSatL = (uL > PWM_MAX) || (uL < -PWM_MAX);
+  gSatR = (uR > PWM_MAX) || (uR < -PWM_MAX);
   uL = clamp(uL, -PWM_MAX, PWM_MAX);
   uR = clamp(uR, -PWM_MAX, PWM_MAX);
 
-  // 5) anti-windup แบบง่าย
+  // 5) anti-windup: integrate เมื่อยังมีที่ให้ไปต่อ หรือกำลังออกจากขอบ
   double iLnext = iL + KiL * Ts * eL;
   double iRnext = iR + KiR * Ts * eR;
-  double uLnext = KpL * eL + iLnext;
-  double uRnext = KpR * eR + iRnext;
-  if (fabs(uL) < PWM_MAX || (uL == PWM_MAX && uLnext < uL) || (uL == -PWM_MAX && uLnext > uL)) iL = iLnext;
-  if (fabs(uR) < PWM_MAX || (uR == PWM_MAX && uRnext < uR) || (uR == -PWM_MAX && uRnext > uR)) iR = iRnext;
+  double uLnext = kV_L * targetRpmL + KpL * eL + iLnext;
+  double uRnext = kV_R * targetRpmR + KpR * eR + iRnext;
 
-  // 6) deadband + สั่งมอเตอร์
-  int dutyL = applyDeadbandSigned(uL, START_PWM_L);
-  int dutyR = applyDeadbandSigned(uR, START_PWM_R);
-  updateMotorControl(dutyL, dutyR);
+  if (!gSatL || (uL == PWM_MAX && uLnext < uL) || (uL == -PWM_MAX && uLnext > uL)) iL = iLnext;
+  if (!gSatR || (uR == PWM_MAX && uRnext < uR) || (uR == -PWM_MAX && uRnext > uR)) iR = iRnext;
+
+  // 6) เดดโซน + ส่งมอเตอร์ และเก็บ duty ไว้พิมพ์
+  gDutyL = applyDeadbandSigned(uL, START_PWM_L);
+  gDutyR = applyDeadbandSigned(uR, START_PWM_R);
+  updateMotorControl(gDutyL, gDutyR);
 }
+
+
 
 static void printHelp() {
   Serial.println();
@@ -137,6 +155,10 @@ void loop() {
     double Rrpm = getRightSpeedCps() * 60.0 / CPR;
 
     Serial.print(F("Mode=")); Serial.print(mode == DriveMode::OpenLoopPWM ? "PWM" : "VEL");
+    Serial.print(F(" | dutyL=")); Serial.print(gDutyL);
+    Serial.print(F(", dutyR="));  Serial.print(gDutyR);
+    Serial.print(F(" | satL="));  Serial.print(gSatL ? 1 : 0);
+    Serial.print(F(", satR="));   Serial.println(gSatR ? 1 : 0);
     Serial.print(F(" | Lcnt="));  Serial.print(getLeftCount());
     Serial.print(F(", Rcnt="));   Serial.print(getRightCount());
     Serial.print(F(" | Lcps="));  Serial.print(getLeftSpeedCps(), 1);
@@ -144,16 +166,17 @@ void loop() {
     Serial.print(F(" | Lrpm="));  Serial.print(Lrpm,1);
     Serial.print(F(", Rrpm="));   Serial.print(Rrpm,1);
     if (mode == DriveMode::VelocityPI) {
-      Serial.print(F(" | TrpmL=")); Serial.print(targetRpmL,0);
-      Serial.print(F(", TrpmR="));  Serial.print(targetRpmR,0);
-    } else {
-      Serial.print(F(" | cmdL=")); Serial.print(cmdL);
-      Serial.print(F(", cmdR="));  Serial.print(cmdR);
-    }
-    Serial.print(F(" | LA_edges=")); Serial.print(leftA_edges);
-    Serial.print(F(", RA_edges="));  Serial.println(rightA_edges);
+  Serial.print(F(" | TrpmL=")); Serial.print(targetRpmL,0);
+  Serial.print(F(", TrpmR="));  Serial.print(targetRpmR,0);
+  Serial.print(F(" | dutyL=")); Serial.print(gDutyL);
+  Serial.print(F(", dutyR="));  Serial.print(gDutyR);
+  Serial.print(F(" | satL="));  Serial.print(gSatL ? 1 : 0);
+  Serial.print(F(", satR="));   Serial.println(gSatR ? 1 : 0);
+} else {
+  Serial.print(F(" | cmdL="));  Serial.print(cmdL);
+  Serial.print(F(", cmdR="));   Serial.println(cmdR);
+}
   }
-
   // อ่านคีย์บอร์ดจาก Serial Monitor (No line ending)
   if (Serial.available()) {
     char c = Serial.read();

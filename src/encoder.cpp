@@ -106,7 +106,7 @@ void encoderSetup() {
 void encoderUpdate() {
   unsigned long now = millis();
   unsigned long dt = now - lastSpeedCalc;
-  if (dt >= 100) { // อัปเดตทุก 100 ms
+  if (dt >= 50) { // อัปเดตทุก 100 ms
     long l = leftCount;
     long r = rightCount;
     leftCps  = (double)(l - lastLeftCount)  / (dt / 1000.0);
