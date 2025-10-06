@@ -62,6 +62,10 @@ double previousError = 0.0;
 double integral = 0.0;
 unsigned long lastComputeTime = 0;
 
+// Encoder speed calculation printing
+unsigned long lastPrintTime = 0;
+const unsigned long printInterval = 20; // ms (ปรับให้ดูทัน)
+
 void setup() {
   // Initialize serial communication
   Serial.begin(115200);
@@ -114,9 +118,9 @@ void loop() {
     // Update encoders (compute speeds)
     encoderUpdate();
 
-  // Read measured speeds (left and right)
-  double measuredL = getLeftSpeedCps();
-  double measuredR = getRightSpeedCps();
+// Read measured speeds (left and right)
+    double measuredL = getLeftSpeedCps();
+    double measuredR = getRightSpeedCps();
 
   // Angle PID computes a virtual output -> convert to targetSpeed (simple mapping)
   const double MaxPIDOutput = 255.0;
@@ -136,17 +140,17 @@ void loop() {
   if (dt_speed <= 0) dt_speed = 0.001;
   lastSpeedPidTime = currentTime;
 
-  double errorL = targetL - measuredL;
-  speedIntegralL += errorL * dt_speed;
-  double derivL = (errorL - speedPrevErrorL) / dt_speed;
-  double cmdL = Kp_speed_L * errorL + Ki_speed_L * speedIntegralL + Kd_speed_L * derivL;
-  speedPrevErrorL = errorL;
+    double errorL = targetL - measuredL;
+    speedIntegralL += errorL * dt_speed;
+    double derivL = (errorL - speedPrevErrorL) / dt_speed;
+    double cmdL = Kp_speed_L * errorL + Ki_speed_L * speedIntegralL + Kd_speed_L * derivL;
+    speedPrevErrorL = errorL;
 
-  double errorR = targetR - measuredR;
-  speedIntegralR += errorR * dt_speed;
-  double derivR = (errorR - speedPrevErrorR) / dt_speed;
-  double cmdR = Kp_speed_R * errorR + Ki_speed_R * speedIntegralR + Kd_speed_R * derivR;
-  speedPrevErrorR = errorR;
+    double errorR = targetR - measuredR;
+    speedIntegralR += errorR * dt_speed;
+    double derivR = (errorR - speedPrevErrorR) / dt_speed;
+    double cmdR = Kp_speed_R * errorR + Ki_speed_R * speedIntegralR + Kd_speed_R * derivR;
+    speedPrevErrorR = errorR;
 
   // Constrain commands
   cmdL = constrain(cmdL, -255, 255);
@@ -174,11 +178,26 @@ void loop() {
     Serial.println(output);
   }
 
+  // --- แยกส่วน print encoder speed ออกมา ---
+  unsigned long now = millis();
+  if (now - lastPrintTime >= printInterval) {
+    printEncoderSpeeds();
+    lastPrintTime = now;
+  }
+
   // Web UI loop
   webuiLoop();
 
   // For DC motor (MDD10A) no step pulses are needed
   // generateStepPulses();
+}
+
+void printEncoderSpeeds() {
+    Serial.print("Left Speed: ");
+    Serial.print(getLeftSpeedCps());
+    Serial.print(" cps, Right Speed: ");
+    Serial.print(getRightSpeedCps());
+    Serial.println(" cps");
 }
 
 void computePID() {

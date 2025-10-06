@@ -147,7 +147,7 @@ void handleStatus() {
 }
 
 void webuiSetup() {
-  WiFi.softAP("Robot_Balane", "12345678");
+  WiFi.softAP("Robot_Balance", "12345678");
   server.on("/", handleRoot);
   server.on("/setpid", HTTP_POST, handleSetPid);
   server.on("/setspeed", HTTP_POST, handleSetSpeed);

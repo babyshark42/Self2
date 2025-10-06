@@ -2,12 +2,16 @@
 #define ENCODER_H
 
 #include <Arduino.h>
-
+extern volatile uint32_t leftA_edges;
+extern volatile uint32_t rightA_edges;
 // Quadrature encoders (left and right)
 // Configure pins in encoder.cpp
-
+double cpsToRpm(double cps);
 // Initialize encoder hardware
 void encoderSetup();
+
+// Print encoder speeds to Serial
+void printEncoderSpeeds();
 
 // Call periodically to update computed speeds (counts per second)
 void encoderUpdate();
